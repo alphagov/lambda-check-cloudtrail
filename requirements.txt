@@ -1,0 +1,5 @@
+boto3==1.4.2
+
+# Test deps
+pytest
+mock
