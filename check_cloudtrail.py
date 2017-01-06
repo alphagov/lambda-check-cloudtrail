@@ -20,26 +20,31 @@ account_details_regex = re.compile(r'^(?P<prefix>[\w,-,_]+)/AWSLogs/(?P<account_
 def get_account_details(s3_object):
     key = s3_object['Key']
     match = account_details_regex.match(key)
-    assert(match != None)
-    return match.groupdict()
+    return match.groupdict() if match else None
 
 def get_last_modified(s3_object):
     last_modified = s3_object['LastModified']
     return last_modified.replace(tzinfo=None)
+
+def find_logs(bucket_name):
+    s3 = boto3.client('s3')
+    contents = s3.list_objects(Bucket=bucket_name)['Contents']
+
+    for s3_object in contents:
+        details = get_account_details(s3_object)
+        if details:
+            last_modified = get_last_modified(s3_object)
+            yield (tuple(details.items()), last_modified)
 
 def discover_cloudtrails(bucket_name):
     """Given a bucket which contains CloudTrail logs from multiple different
     AWS Accounts this will find details of the accounts which are sending logs
     into the bucket.
     """
-    s3 = boto3.client('s3')
-
     cloudtrails_last_updated = defaultdict(lambda: LONG_TIME_AGO)
-    for s3_object in s3.list_objects(Bucket=bucket_name)['Contents']:
-        details = tuple(get_account_details(s3_object).items())
-        last_modified = get_last_modified(s3_object)
-        if cloudtrails_last_updated[details] < last_modified:
-            cloudtrails_last_updated[details] = last_modified
+    for object_details, last_modified in find_logs(bucket_name):
+        if cloudtrails_last_updated[object_details] < last_modified:
+            cloudtrails_last_updated[object_details] = last_modified
 
     cloudtrails = []
     for account_details, last_updated in cloudtrails_last_updated.items():
